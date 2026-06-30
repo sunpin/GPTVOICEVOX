@@ -158,25 +158,44 @@ log('ChatGPTのAI返答を待っています...');
 // VOICEVOXに非同期で音声合成をリクエストしPromiseを返す関数
 function requestVoicevoxBase64(text) {
   return new Promise((resolve) => {
+    if (!chrome.runtime || !chrome.runtime.id) {
+      log('拡張機能のコンテキストが無効になりました。ページをリロードしてください。', 'error');
+      stopMonitoring();
+      resolve(null);
+      return;
+    }
+
     log(`音声先行取得開始: "${text.substring(0, 15)}..."`, 'synth');
-    chrome.runtime.sendMessage({
-      action: 'synthesize',
-      text: text,
-      speakerId: SPEAKER_ID,
-      speedScale: SPEED_SCALE
-    }, (response) => {
-      if (!response) {
-        log('通信エラー: 応答なし。ブラウザをリロードしてください。', 'error');
-        resolve(null);
-        return;
-      }
-      if (!response.success) {
-        log(`通信エラー: ${response.error}`, 'error');
-        resolve(null);
-        return;
-      }
-      resolve(response.base64Wav);
-    });
+    try {
+      chrome.runtime.sendMessage({
+        action: 'synthesize',
+        text: text,
+        speakerId: SPEAKER_ID,
+        speedScale: SPEED_SCALE
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          log('通信エラー: 拡張機能がリロードされました。ページをリロードしてください。', 'error');
+          stopMonitoring();
+          resolve(null);
+          return;
+        }
+        if (!response) {
+          log('通信エラー: 応答なし。ブラウザをリロードしてください。', 'error');
+          resolve(null);
+          return;
+        }
+        if (!response.success) {
+          log(`通信エラー: ${response.error}`, 'error');
+          resolve(null);
+          return;
+        }
+        resolve(response.base64Wav);
+      });
+    } catch (err) {
+      log('通信エラー: 拡張機能コンテキストが無効です。リロードしてください。', 'error');
+      stopMonitoring();
+      resolve(null);
+    }
   });
 }
 
@@ -196,11 +215,25 @@ async function processQueue() {
       
       // バックグラウンドのオフスクリーンに再生を依頼する (自動再生制限の回避)
       const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({
-          action: 'play_offscreen',
-          base64Wav: base64Data,
-          gapTime: GAP_TIME
-        }, resolve);
+        if (!chrome.runtime || !chrome.runtime.id) {
+          resolve({ success: false, error: '拡張機能のコンテキストが無効です' });
+          return;
+        }
+        try {
+          chrome.runtime.sendMessage({
+            action: 'play_offscreen',
+            base64Wav: base64Data,
+            gapTime: GAP_TIME
+          }, (res) => {
+            if (chrome.runtime.lastError) {
+              resolve({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+              resolve(res || { success: false, error: '応答がありませんでした' });
+            }
+          });
+        } catch (e) {
+          resolve({ success: false, error: e.message });
+        }
       });
       
       if (!response || !response.success) {
@@ -231,7 +264,7 @@ function cleanseText(element) {
 let hasStartedGenerating = false;
 
 // 監視ループ
-const watchInterval = setInterval(() => {
+let watchInterval = setInterval(() => {
   const messages = document.querySelectorAll('div[data-message-author-role="assistant"]');
   if (messages.length === 0) return;
 
@@ -322,8 +355,14 @@ function stopAllSpeech() {
   speechQueue.length = 0;
   isSpeaking = false;
   
-  // バックグラウンドに音声の強制停止を要求
-  chrome.runtime.sendMessage({ action: 'stop_offscreen' });
+  // バックグラウンドに音声の強制停止を要求 (コンテキスト有効時のみ)
+  if (chrome.runtime && chrome.runtime.id) {
+    try {
+      chrome.runtime.sendMessage({ action: 'stop_offscreen' });
+    } catch (e) {
+      // 握りつぶす
+    }
+  }
 }
 
 // ユーザーの入力送信アクションの監視
@@ -343,5 +382,14 @@ document.addEventListener('click', (e) => {
     stopAllSpeech();
   }
 }, true);
+
+// 監視を停止する関数 (コンテキスト無効化時用)
+function stopMonitoring() {
+  if (watchInterval) {
+    clearInterval(watchInterval);
+    watchInterval = null;
+    log('監視ループを停止しました。拡張機能がアップデートされたため、ページをリロードしてください。', 'error');
+  }
+}
 
 
