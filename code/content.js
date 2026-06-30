@@ -56,14 +56,47 @@ gapDiv.innerHTML = `
 `;
 body.appendChild(gapDiv);
 
-// 話者ID設定
+// 話者選択（ドロップダウン）設定
 const speakerDiv = document.createElement('div');
 speakerDiv.style.display = 'flex';
 speakerDiv.style.justifyContent = 'space-between';
 speakerDiv.style.alignItems = 'center';
 speakerDiv.innerHTML = `
-  <span>話者スタイルID:</span>
-  <input type="number" id="vv-speaker-input" min="0" max="100" value="${SPEAKER_ID}" style="width:55px; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px 4px; text-align:center;">
+  <span>話者選択:</span>
+  <select id="vv-speaker-select" style="background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; width:125px; cursor:pointer;">
+    <optgroup label="ずんだもん">
+      <option value="3">ずんだもん（ノーマル）</option>
+      <option value="1">ずんだもん（あまあま）</option>
+      <option value="5">ずんだもん（セクシー）</option>
+      <option value="7">ずんだもん（ツンツン）</option>
+      <option value="22">ずんだもん（ささやき）</option>
+      <option value="38">ずんだもん（ヒソヒソ）</option>
+    </optgroup>
+    <optgroup label="四国めたん">
+      <option value="2">四国めたん（ノーマル）</option>
+      <option value="0">四国めたん（あまあま）</option>
+      <option value="4">四国めたん（セクシー）</option>
+      <option value="6">四国めたん（ツンツン）</option>
+    </optgroup>
+    <optgroup label="春日部つむぎ">
+      <option value="8">春日部つむぎ（ノーマル）</option>
+    </optgroup>
+    <optgroup label="雨晴はう">
+      <option value="10">雨晴はう（ノーマル）</option>
+    </optgroup>
+    <optgroup label="波音リツ">
+      <option value="9">波音リツ（ノーマル）</option>
+    </optgroup>
+    <optgroup label="冥鳴ひまり">
+      <option value="14">冥鳴ひまり（ノーマル）</option>
+    </optgroup>
+    <optgroup label="玄野武宏">
+      <option value="11">玄野武宏（ノーマル）</option>
+    </optgroup>
+    <optgroup label="青山龍星">
+      <option value="13">青山龍星（ノーマル）</option>
+    </optgroup>
+  </select>
 `;
 body.appendChild(speakerDiv);
 
@@ -100,8 +133,9 @@ gapRange.oninput = (e) => {
   localStorage.setItem('vv_gap_time', GAP_TIME);
 };
 
-const speakerInput = document.getElementById('vv-speaker-input');
-speakerInput.onchange = (e) => {
+const speakerSelect = document.getElementById('vv-speaker-select');
+speakerSelect.value = SPEAKER_ID; // 初期値の反映
+speakerSelect.onchange = (e) => {
   SPEAKER_ID = parseInt(e.target.value, 10);
   localStorage.setItem('vv_speaker_id', SPEAKER_ID);
 };

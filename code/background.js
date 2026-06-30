@@ -1,15 +1,25 @@
 // オフスクリーンドキュメントの作成（存在しない場合）
 async function setupOffscreen() {
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT']
-  });
-  if (existingContexts.length > 0) return;
+  try {
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT']
+    });
+    if (existingContexts.length > 0) return;
+  } catch (e) {
+    // getContexts がサポートされていない古い環境のフォールバック
+  }
 
-  await chrome.offscreen.createDocument({
-    url: 'offscreen.html',
-    reasons: ['AUDIO_PLAYBACK'],
-    justification: 'VOICEVOX audio playback bypass autoplay policy'
-  });
+  try {
+    await chrome.offscreen.createDocument({
+      url: chrome.runtime.getURL('offscreen.html'),
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'VOICEVOX audio playback bypass autoplay policy'
+    });
+  } catch (err) {
+    if (!err.message.includes('already exists')) {
+      throw err;
+    }
+  }
 }
 
 // content.js からのリクエストを待機
