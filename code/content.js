@@ -340,6 +340,16 @@ function requestVoicevoxBase64(text) {
   });
 }
 
+// 先読み（プリフェッチ）のトリガー関数 (最大1つの先読みのみ開始するバッファ1テキスト制限)
+function triggerPrefetch() {
+  if (speechQueue.length > 0) {
+    const nextItem = speechQueue[0];
+    if (!nextItem.promise) {
+      nextItem.promise = requestVoicevoxBase64(nextItem.text);
+    }
+  }
+}
+
 // 再生キュー
 async function processQueue() {
   if (isSpeaking || speechQueue.length === 0) return;
@@ -347,7 +357,14 @@ async function processQueue() {
 
   const item = speechQueue.shift();
   
-  // すでに裏で走っている音声合成（Promise）の完了を待つ
+  // もし何らかの理由で先読みがまだ走っていなければ、ここで走らせる
+  if (!item.promise) {
+    item.promise = requestVoicevoxBase64(item.text);
+  }
+
+  // キューの次の要素の先読みを開始 (バッファ1テキストの制御)
+  triggerPrefetch();
+
   const base64Data = await item.promise;
 
   if (base64Data) {
@@ -388,8 +405,9 @@ async function processQueue() {
   }
 
   isSpeaking = false;
-  // オフスクリーン側で待ち時間（GAP_TIME）が消化されてから返答が来るため、
-  // ここでの再帰ウェイトは最小限（10ms）にする
+  
+  // 再生が終わったので、さらに次の先読みをトリガー
+  triggerPrefetch();
   setTimeout(processQueue, 10);
 }
 
@@ -433,6 +451,9 @@ let watchInterval = setInterval(() => {
   // メッセージ内の p タグをすべて取得
   const pElements = latestMessage.querySelectorAll('p');
   
+  // メッセージ全体で各テキストの出現回数を記録する Map (ダブりチェック用)
+  const sentenceCounts = new Map();
+  
   pElements.forEach((p, pIndex) => {
     // 完全に完了済みのpタグはスキップ
     if (p.getAttribute('data-vv-spoken') === 'true') return;
@@ -449,19 +470,24 @@ let watchInterval = setInterval(() => {
       match.forEach((sentence, sIndex) => {
         const trimmed = sentence.trim();
         if (trimmed.length > 0) {
-          // 「Pタグインデックス:文インデックス:トリム文テキスト」で一意キーを作成
-          const key = `${pIndex}:${sIndex}:${trimmed}`;
+          // 出現回数をカウント
+          const count = (sentenceCounts.get(trimmed) || 0) + 1;
+          sentenceCounts.set(trimmed, count);
+
+          // 一意キーを「テキスト内容:出現回数」にする (DOMインデックスズレ対策)
+          const key = `${trimmed}:${count}`;
           if (!sentSentences.has(key)) {
             log(`新規確定文を検知 (メモリ): "${trimmed.substring(0, 15)}..."`);
             sentSentences.add(key);
             speechQueue.push({
               text: trimmed,
-              promise: requestVoicevoxBase64(trimmed)
+              promise: null // バッファ1テキスト制限のため、ここでは開始せずnullで登録
             });
           }
         }
         bytesUsed += sentence.length;
       });
+      triggerPrefetch();
       processQueue();
     }
 
@@ -471,28 +497,38 @@ let watchInterval = setInterval(() => {
 
     if (trimmedRemaining.length > 0) {
       if (isLast && !isGenerating) {
+        // 出現回数をカウント
+        const count = (sentenceCounts.get(trimmedRemaining) || 0) + 1;
+        sentenceCounts.set(trimmedRemaining, count);
+
         // 生成完了しているなら、残存テキストを最後の文として送信
-        const key = `${pIndex}:remaining:${trimmedRemaining}`;
+        const key = `${trimmedRemaining}:${count}`;
         if (!sentSentences.has(key)) {
           log(`最終残余分を検知 (メモリ): "${trimmedRemaining.substring(0, 15)}..."`);
           sentSentences.add(key);
           speechQueue.push({
             text: trimmedRemaining,
-            promise: requestVoicevoxBase64(trimmedRemaining)
+            promise: null
           });
+          triggerPrefetch();
           processQueue();
         }
         p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
       } else if (!isLast) {
+        // 出現回数をカウント
+        const count = (sentenceCounts.get(trimmedRemaining) || 0) + 1;
+        sentenceCounts.set(trimmedRemaining, count);
+
         // 次のPタグへ移っているなら、このPタグの残存テキストを送信して完了とする
-        const key = `${pIndex}:remaining:${trimmedRemaining}`;
+        const key = `${trimmedRemaining}:${count}`;
         if (!sentSentences.has(key)) {
           log(`段落移動による残余分を検知 (メモリ): "${trimmedRemaining.substring(0, 15)}..."`);
           sentSentences.add(key);
           speechQueue.push({
             text: trimmedRemaining,
-            promise: requestVoicevoxBase64(trimmedRemaining)
+            promise: null
           });
+          triggerPrefetch();
           processQueue();
         }
         p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
