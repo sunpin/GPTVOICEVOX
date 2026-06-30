@@ -446,41 +446,57 @@ let watchInterval = setInterval(() => {
       return;
     }
 
-    let textToSpeak = '';
+    // 文末の区切り文字（。！？および改行）で分割して探す
+    const match = newText.match(/.*?[。！？\n]/g);
     let bytesUsed = 0;
 
-    // 文末の区切り文字（。！？および改行）の最後の位置を探す
-    const match = newText.match(/.*?[。！？\n]/g);
-    
     if (match) {
-      textToSpeak = match.join('');
-      bytesUsed = textToSpeak.length;
+      // 複数文見つかった場合、それぞれを個別にキューへ入れる
+      match.forEach(sentence => {
+        const trimmed = sentence.trim();
+        if (trimmed.length > 0) {
+          log(`新規確定文を検知: "${trimmed.substring(0, 15)}..."`);
+          speechQueue.push({
+            text: trimmed,
+            promise: requestVoicevoxBase64(trimmed)
+          });
+        }
+        bytesUsed += sentence.length;
+      });
+      processQueue();
     }
 
-    // もし生成が完了しているなら、区切り文字が無くても残りの全テキストを送信
+    // もし生成が完了しているなら、残りのテキスト（最後の句読点以降のテキスト）も送信
     if (isLast && !isGenerating) {
-      textToSpeak = newText;
-      bytesUsed = newText.length;
+      const remainingText = newText.substring(bytesUsed);
+      const trimmed = remainingText.trim();
+      if (trimmed.length > 0) {
+        log(`最終残余分を検知: "${trimmed.substring(0, 15)}..."`);
+        speechQueue.push({
+          text: trimmed,
+          promise: requestVoicevoxBase64(trimmed)
+        });
+        processQueue();
+      }
+      bytesUsed += remainingText.length;
       p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
     } else if (!isLast) {
       // 最後のpタグではない（次のpタグがある）なら、残りをすべて送信して完了にする
-      textToSpeak = newText;
-      bytesUsed = newText.length;
+      const remainingText = newText.substring(bytesUsed);
+      const trimmed = remainingText.trim();
+      if (trimmed.length > 0) {
+        log(`段落移動による残余分を検知: "${trimmed.substring(0, 15)}..."`);
+        speechQueue.push({
+          text: trimmed,
+          promise: requestVoicevoxBase64(trimmed)
+        });
+        processQueue();
+      }
+      bytesUsed += remainingText.length;
       p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
     }
 
-    const trimmed = textToSpeak.trim();
-    if (trimmed.length > 0) {
-      log(`新規確定文を検知: "${trimmed.substring(0, 15)}..."`);
-      
-      // テキストと、そのテキストに対する非同期取得Promiseのペアをキューに格納
-      speechQueue.push({
-        text: trimmed,
-        promise: requestVoicevoxBase64(trimmed)
-      });
-      
-      processQueue();
-      
+    if (bytesUsed > 0) {
       // 送信済み文字数の更新
       p.setAttribute('data-vv-spoken-len', spokenLen + bytesUsed);
     }
