@@ -228,6 +228,8 @@ function cleanseText(element) {
     .replace(/https?:\/\/[^\s]+/g, '');
 }
 
+let hasStartedGenerating = false;
+
 // 監視ループ
 const watchInterval = setInterval(() => {
   const messages = document.querySelectorAll('div[data-message-author-role="assistant"]');
@@ -238,6 +240,16 @@ const watchInterval = setInterval(() => {
   // 生成中（ストリーミング中）かどうかの判定
   const stopButton = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop generating"]');
   const isGenerating = !!stopButton;
+
+  if (isGenerating) {
+    hasStartedGenerating = true;
+  }
+
+  // リロード直後などでAIの新たな発言（生成開始）を検知するまでは、過去ログなので一切読み上げない
+  if (!hasStartedGenerating) {
+    latestMessage.querySelectorAll('p').forEach(p => p.setAttribute('data-vv-spoken', 'true'));
+    return;
+  }
 
   // メッセージ内の p タグをすべて取得
   const pElements = latestMessage.querySelectorAll('p');
