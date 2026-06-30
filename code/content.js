@@ -287,6 +287,7 @@ const CHECK_INTERVAL = 300; // 300ms間隔で超高速監視
 let lastMessageId = '';
 const speechQueue = [];
 let isSpeaking = false;
+const sentSentences = new Set();
 
 log('拡張機能による監視を開始しました。');
 log('【CORS/CSP完全回避・音声先行合成モード】');
@@ -415,6 +416,11 @@ let watchInterval = setInterval(() => {
   const isGenerating = !!stopButton;
 
   if (isGenerating) {
+    if (!hasStartedGenerating) {
+      // 新しい回答のストリーミング開始を検知したタイミングで履歴をクリア
+      sentSentences.clear();
+      log('新しい返答の生成を検知したため、送信済み履歴をクリアしました。');
+    }
     hasStartedGenerating = true;
   }
 
@@ -427,78 +433,75 @@ let watchInterval = setInterval(() => {
   // メッセージ内の p タグをすべて取得
   const pElements = latestMessage.querySelectorAll('p');
   
-  pElements.forEach((p, index) => {
+  pElements.forEach((p, pIndex) => {
     // 完全に完了済みのpタグはスキップ
     if (p.getAttribute('data-vv-spoken') === 'true') return;
 
-    const isLast = (index === pElements.length - 1);
+    const isLast = (pIndex === pElements.length - 1);
     const text = cleanseText(p);
     if (!text) return;
 
-    // 既に読み上げ（送信）した文字数を取得
-    const spokenLen = parseInt(p.getAttribute('data-vv-spoken-len') || '0', 10);
-    const newText = text.substring(spokenLen);
-    if (!newText) {
-      // 生成完了しているなら、このpタグは完全に処理済みとしてマーク
-      if (isLast && !isGenerating) {
-        p.setAttribute('data-vv-spoken', 'true');
-      }
-      return;
-    }
-
-    // 文末の区切り文字（。！？および改行）で分割して探す
-    const match = newText.match(/.*?[。！？\n]/g);
+    // 全文から文末の区切り文字で分割して探す
+    const match = text.match(/.*?[。！？\n]/g);
     let bytesUsed = 0;
 
     if (match) {
-      // 複数文見つかった場合、それぞれを個別にキューへ入れる
-      match.forEach(sentence => {
+      match.forEach((sentence, sIndex) => {
         const trimmed = sentence.trim();
         if (trimmed.length > 0) {
-          log(`新規確定文を検知: "${trimmed.substring(0, 15)}..."`);
-          speechQueue.push({
-            text: trimmed,
-            promise: requestVoicevoxBase64(trimmed)
-          });
+          // 「Pタグインデックス:文インデックス:トリム文テキスト」で一意キーを作成
+          const key = `${pIndex}:${sIndex}:${trimmed}`;
+          if (!sentSentences.has(key)) {
+            log(`新規確定文を検知 (メモリ): "${trimmed.substring(0, 15)}..."`);
+            sentSentences.add(key);
+            speechQueue.push({
+              text: trimmed,
+              promise: requestVoicevoxBase64(trimmed)
+            });
+          }
         }
         bytesUsed += sentence.length;
       });
       processQueue();
     }
 
-    // もし生成が完了しているなら、残りのテキスト（最後の句読点以降のテキスト）も送信
-    if (isLast && !isGenerating) {
-      const remainingText = newText.substring(bytesUsed);
-      const trimmed = remainingText.trim();
-      if (trimmed.length > 0) {
-        log(`最終残余分を検知: "${trimmed.substring(0, 15)}..."`);
-        speechQueue.push({
-          text: trimmed,
-          promise: requestVoicevoxBase64(trimmed)
-        });
-        processQueue();
-      }
-      bytesUsed += remainingText.length;
-      p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
-    } else if (!isLast) {
-      // 最後のpタグではない（次のpタグがある）なら、残りをすべて送信して完了にする
-      const remainingText = newText.substring(bytesUsed);
-      const trimmed = remainingText.trim();
-      if (trimmed.length > 0) {
-        log(`段落移動による残余分を検知: "${trimmed.substring(0, 15)}..."`);
-        speechQueue.push({
-          text: trimmed,
-          promise: requestVoicevoxBase64(trimmed)
-        });
-        processQueue();
-      }
-      bytesUsed += remainingText.length;
-      p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
-    }
+    // 句読点マッチング後の残りテキストの取得
+    const remainingText = text.substring(bytesUsed);
+    const trimmedRemaining = remainingText.trim();
 
-    if (bytesUsed > 0) {
-      // 送信済み文字数の更新
-      p.setAttribute('data-vv-spoken-len', spokenLen + bytesUsed);
+    if (trimmedRemaining.length > 0) {
+      if (isLast && !isGenerating) {
+        // 生成完了しているなら、残存テキストを最後の文として送信
+        const key = `${pIndex}:remaining:${trimmedRemaining}`;
+        if (!sentSentences.has(key)) {
+          log(`最終残余分を検知 (メモリ): "${trimmedRemaining.substring(0, 15)}..."`);
+          sentSentences.add(key);
+          speechQueue.push({
+            text: trimmedRemaining,
+            promise: requestVoicevoxBase64(trimmedRemaining)
+          });
+          processQueue();
+        }
+        p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
+      } else if (!isLast) {
+        // 次のPタグへ移っているなら、このPタグの残存テキストを送信して完了とする
+        const key = `${pIndex}:remaining:${trimmedRemaining}`;
+        if (!sentSentences.has(key)) {
+          log(`段落移動による残余分を検知 (メモリ): "${trimmedRemaining.substring(0, 15)}..."`);
+          sentSentences.add(key);
+          speechQueue.push({
+            text: trimmedRemaining,
+            promise: requestVoicevoxBase64(trimmedRemaining)
+          });
+          processQueue();
+        }
+        p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
+      }
+    } else {
+      // 残存テキストがない場合、かつ生成完了している、または最後のPタグでない場合は完了マークを付与
+      if ((isLast && !isGenerating) || !isLast) {
+        p.setAttribute('data-vv-spoken', 'true');
+      }
     }
   });
 }, CHECK_INTERVAL);
@@ -510,6 +513,7 @@ function stopAllSpeech() {
   // キューとステートのクリア
   speechQueue.length = 0;
   isSpeaking = false;
+  sentSentences.clear();
   
   // バックグラウンドに音声の強制停止を要求 (コンテキスト有効時のみ)
   if (chrome.runtime && chrome.runtime.id) {
