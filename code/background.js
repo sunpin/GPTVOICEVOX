@@ -36,6 +36,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // 非同期応答を有効にする
   }
 
+  // 音声再生の停止命令
+  if (request.action === 'stop_offscreen') {
+    handleStopOffscreen()
+      .then(() => {
+        sendResponse({ success: true });
+      })
+      .catch(err => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
   // 音声合成単体のリクエスト (content.js での先行合成プリフェッチ用)
   if (request.action === 'synthesize') {
     synthesizeSpeech(request.text, request.speakerId, request.speedScale)
@@ -53,19 +65,27 @@ const VOICEVOX_URL = 'http://localhost:50021';
 
 // オフスクリーンでの再生指示
 async function handlePlayOffscreen(base64Wav, gapTime) {
-  // 1. オフスクリーンの準備
   await setupOffscreen();
-  
-  // 2. オフスクリーンに音声再生をメッセージング
   const response = await chrome.runtime.sendMessage({
     target: 'offscreen',
     action: 'play',
     base64Wav: base64Wav,
     gapTime: gapTime
   });
-  
   if (!response || !response.success) {
     throw new Error(response ? response.error : 'Playback failed in offscreen');
+  }
+}
+
+// オフスクリーンでの停止指示
+async function handleStopOffscreen() {
+  await setupOffscreen();
+  const response = await chrome.runtime.sendMessage({
+    target: 'offscreen',
+    action: 'stop'
+  });
+  if (!response || !response.success) {
+    throw new Error(response ? response.error : 'Stop failed in offscreen');
   }
 }
 

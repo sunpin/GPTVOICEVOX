@@ -314,4 +314,34 @@ const watchInterval = setInterval(() => {
   });
 }, CHECK_INTERVAL);
 
+// すべての音声再生を強制停止しキューをクリアする関数
+function stopAllSpeech() {
+  log('【送信検知】音声再生を強制停止し、待機キューをクリアしました。');
+  
+  // キューとステートのクリア
+  speechQueue.length = 0;
+  isSpeaking = false;
+  
+  // バックグラウンドに音声の強制停止を要求
+  chrome.runtime.sendMessage({ action: 'stop_offscreen' });
+}
+
+// ユーザーの入力送信アクションの監視
+// 1. Enterキーによる送信 (Shift+Enterは改行のため除外)
+document.addEventListener('keydown', (e) => {
+  if (e.target && e.target.id === 'prompt-textarea') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      stopAllSpeech();
+    }
+  }
+}, true); // キャプチャリングフェーズで優先的に検知
+
+// 2. 送信ボタンクリックによる送信
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-testid="send-button"], button[aria-label="Send prompt"]');
+  if (btn) {
+    stopAllSpeech();
+  }
+}, true);
+
 
