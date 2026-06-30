@@ -1,5 +1,8 @@
 // 設定の読み込み (localStorageで永続化)
+let ENGINE = localStorage.getItem('vv_engine') || 'voicevox';
 let SPEAKER_ID = parseInt(localStorage.getItem('vv_speaker_id') || '3', 10);
+let COEIROINK_SPEAKER_UUID = localStorage.getItem('vv_coeiroink_speaker_uuid') || '3c37fa81-1fb7-4ad2-8b8b-172fd2f1adbd';
+let COEIROINK_STYLE_ID = parseInt(localStorage.getItem('vv_coeiroink_style_id') || '0', 10);
 let SPEED_SCALE = parseFloat(localStorage.getItem('vv_speed_scale') || '1.1', 10);
 let GAP_TIME = parseInt(localStorage.getItem('vv_gap_time') || '10', 10);
 
@@ -33,6 +36,20 @@ const body = document.createElement('div');
 body.id = 'vv-config-body';
 body.style.display = 'block';
 
+// 音声エンジン設定
+const engineDiv = document.createElement('div');
+engineDiv.style.marginBottom = '8px';
+engineDiv.innerHTML = `
+  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+    <span>音声エンジン:</span>
+  </div>
+  <select id="vv-engine-select" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; cursor:pointer;">
+    <option value="voicevox">VOICEVOX (50021)</option>
+    <option value="coeiroink">COEIROINK (50032)</option>
+  </select>
+`;
+body.appendChild(engineDiv);
+
 // 速度設定
 const speedDiv = document.createElement('div');
 speedDiv.style.styleFloat = 'none';
@@ -58,44 +75,13 @@ body.appendChild(gapDiv);
 
 // 話者選択（ドロップダウン）設定
 const speakerDiv = document.createElement('div');
-speakerDiv.style.display = 'flex';
-speakerDiv.style.justifyContent = 'space-between';
-speakerDiv.style.alignItems = 'center';
+speakerDiv.style.marginBottom = '8px';
 speakerDiv.innerHTML = `
-  <span>話者選択:</span>
-  <select id="vv-speaker-select" style="background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; width:125px; cursor:pointer;">
-    <optgroup label="ずんだもん">
-      <option value="3">ずんだもん（ノーマル）</option>
-      <option value="1">ずんだもん（あまあま）</option>
-      <option value="5">ずんだもん（セクシー）</option>
-      <option value="7">ずんだもん（ツンツン）</option>
-      <option value="22">ずんだもん（ささやき）</option>
-      <option value="38">ずんだもん（ヒソヒソ）</option>
-    </optgroup>
-    <optgroup label="四国めたん">
-      <option value="2">四国めたん（ノーマル）</option>
-      <option value="0">四国めたん（あまあま）</option>
-      <option value="4">四国めたん（セクシー）</option>
-      <option value="6">四国めたん（ツンツン）</option>
-    </optgroup>
-    <optgroup label="春日部つむぎ">
-      <option value="8">春日部つむぎ（ノーマル）</option>
-    </optgroup>
-    <optgroup label="雨晴はう">
-      <option value="10">雨晴はう（ノーマル）</option>
-    </optgroup>
-    <optgroup label="波音リツ">
-      <option value="9">波音リツ（ノーマル）</option>
-    </optgroup>
-    <optgroup label="冥鳴ひまり">
-      <option value="14">冥鳴ひまり（ノーマル）</option>
-    </optgroup>
-    <optgroup label="玄野武宏">
-      <option value="11">玄野武宏（ノーマル）</option>
-    </optgroup>
-    <optgroup label="青山龍星">
-      <option value="13">青山龍星（ノーマル）</option>
-    </optgroup>
+  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+    <span>話者選択:</span>
+  </div>
+  <select id="vv-speaker-select" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; cursor:pointer;">
+    <!-- 動的に切り替え -->
   </select>
 `;
 body.appendChild(speakerDiv);
@@ -117,12 +103,153 @@ header.onclick = () => {
   }
 };
 
+const voicevoxOptions = `
+  <optgroup label="ずんだもん">
+    <option value="3">ずんだもん（ノーマル）</option>
+    <option value="1">ずんだもん（あまあま）</option>
+    <option value="5">ずんだもん（セクシー）</option>
+    <option value="7">ずんだもん（ツンツン）</option>
+    <option value="22">ずんだもん（ささやき）</option>
+    <option value="38">ずんだもん（ヒソヒソ）</option>
+  </optgroup>
+  <optgroup label="四国めたん">
+    <option value="2">四国めたん（ノーマル）</option>
+    <option value="0">四国めたん（あまあま）</option>
+    <option value="4">四国めたん（セクシー）</option>
+    <option value="6">四国めたん（ツンツン）</option>
+  </optgroup>
+  <optgroup label="春日部つむぎ">
+    <option value="8">春日部つむぎ（ノーマル）</option>
+  </optgroup>
+  <optgroup label="雨晴はう">
+    <option value="10">雨晴はう（ノーマル）</option>
+  </optgroup>
+  <optgroup label="波音リツ">
+    <option value="9">波音リツ（ノーマル）</option>
+  </optgroup>
+  <optgroup label="冥鳴ひまり">
+    <option value="14">冥鳴ひまり（ノーマル）</option>
+  </optgroup>
+  <optgroup label="玄野武宏">
+    <option value="11">玄野武宏（ノーマル）</option>
+  </optgroup>
+  <optgroup label="青山龍星">
+    <option value="13">青山龍星（ノーマル）</option>
+  </optgroup>
+`;
+
+const coeiroinkOptions = `
+  <optgroup label="つくよみちゃん">
+    <option value="3c37fa81-1fb7-4ad2-8b8b-172fd2f1adbd:0">つくよみちゃん（ノーマル）</option>
+    <option value="3c37fa81-1fb7-4ad2-8b8b-172fd2f1adbd:1">つくよみちゃん（あまあま）</option>
+    <option value="3c37fa81-1fb7-4ad2-8b8b-172fd2f1adbd:2">つくよみちゃん（セクシー）</option>
+    <option value="3c37fa81-1fb7-4ad2-8b8b-172fd2f1adbd:3">つくよみちゃん（ツンツン）</option>
+    <option value="3c37fa81-1fb7-4ad2-8b8b-172fd2f1adbd:4">つくよみちゃん（ささやき）</option>
+  </optgroup>
+  <optgroup label="シロワニさん">
+    <option value="dcfda1be-ca7e-40dc-bc0e-0d192131b7b6:0">シロワニさん（ノーマル）</option>
+    <option value="dcfda1be-ca7e-40dc-bc0e-0d192131b7b6:1">シロワニさん（喜び）</option>
+    <option value="dcfda1be-ca7e-40dc-bc0e-0d192131b7b6:5">シロワニさん（ささやき）</option>
+  </optgroup>
+`;
+
+const engineSelect = document.getElementById('vv-engine-select');
+const speakerSelect = document.getElementById('vv-speaker-select');
+
+const updateSpeakerSelect = async () => {
+  speakerSelect.innerHTML = '<option value="">読み込み中...</option>';
+  
+  try {
+    const response = await new Promise((resolve) => {
+      if (!chrome.runtime || !chrome.runtime.id) {
+        resolve({ success: false, error: 'Context invalidated' });
+        return;
+      }
+      chrome.runtime.sendMessage({ action: 'get_speakers', engine: ENGINE }, resolve);
+    });
+
+    if (!response || !response.success || !response.speakers) {
+      throw new Error(response ? response.error : 'No speakers returned');
+    }
+
+    let html = '';
+    if (ENGINE === 'coeiroink') {
+      response.speakers.forEach(sp => {
+        html += `<optgroup label="${sp.speakerName}">`;
+        sp.styles.forEach(style => {
+          html += `<option value="${sp.speakerUuid}:${style.styleId}">${sp.speakerName}（${style.styleName}）</option>`;
+        });
+        html += `</optgroup>`;
+      });
+      speakerSelect.innerHTML = html;
+      
+      speakerSelect.value = `${COEIROINK_SPEAKER_UUID}:${COEIROINK_STYLE_ID}`;
+      if (!speakerSelect.value && speakerSelect.options.length > 0) {
+        speakerSelect.selectedIndex = 0;
+        const [uuid, style] = speakerSelect.value.split(':');
+        COEIROINK_SPEAKER_UUID = uuid;
+        COEIROINK_STYLE_ID = parseInt(style, 10);
+        localStorage.setItem('vv_coeiroink_speaker_uuid', COEIROINK_SPEAKER_UUID);
+        localStorage.setItem('vv_coeiroink_style_id', COEIROINK_STYLE_ID);
+      }
+    } else {
+      response.speakers.forEach(sp => {
+        html += `<optgroup label="${sp.name}">`;
+        sp.styles.forEach(style => {
+          html += `<option value="${style.id}">${sp.name}（${style.name}）</option>`;
+        });
+        html += `</optgroup>`;
+      });
+      speakerSelect.innerHTML = html;
+
+      speakerSelect.value = SPEAKER_ID;
+      if (!speakerSelect.value && speakerSelect.options.length > 0) {
+        speakerSelect.selectedIndex = 0;
+        SPEAKER_ID = parseInt(speakerSelect.value, 10);
+        localStorage.setItem('vv_speaker_id', SPEAKER_ID);
+      }
+    }
+  } catch (err) {
+    log(`話者リストの動的取得に失敗したためフォールバックを使用します: ${err.message}`, 'warning');
+    if (ENGINE === 'coeiroink') {
+      speakerSelect.innerHTML = coeiroinkOptions;
+      speakerSelect.value = `${COEIROINK_SPEAKER_UUID}:${COEIROINK_STYLE_ID}`;
+      if (!speakerSelect.value && speakerSelect.options.length > 0) {
+        speakerSelect.selectedIndex = 0;
+        const [uuid, style] = speakerSelect.value.split(':');
+        COEIROINK_SPEAKER_UUID = uuid;
+        COEIROINK_STYLE_ID = parseInt(style, 10);
+      }
+    } else {
+      speakerSelect.innerHTML = voicevoxOptions;
+      speakerSelect.value = SPEAKER_ID;
+      if (!speakerSelect.value && speakerSelect.options.length > 0) {
+        speakerSelect.selectedIndex = 0;
+        SPEAKER_ID = parseInt(speakerSelect.value, 10);
+      }
+    }
+  }
+};
+
+engineSelect.value = ENGINE;
+updateSpeakerSelect();
+
+engineSelect.onchange = (e) => {
+  ENGINE = e.target.value;
+  localStorage.setItem('vv_engine', ENGINE);
+  stopAllSpeech();
+  updateSpeakerSelect();
+};
+
 const speedRange = document.getElementById('vv-speed-range');
 const speedVal = document.getElementById('vv-speed-val');
 speedRange.oninput = (e) => {
   SPEED_SCALE = parseFloat(e.target.value);
   speedVal.innerText = SPEED_SCALE;
   localStorage.setItem('vv_speed_scale', SPEED_SCALE);
+};
+speedRange.onchange = () => {
+  stopAllSpeech();
 };
 
 const gapRange = document.getElementById('vv-gap-range');
@@ -133,11 +260,21 @@ gapRange.oninput = (e) => {
   localStorage.setItem('vv_gap_time', GAP_TIME);
 };
 
-const speakerSelect = document.getElementById('vv-speaker-select');
-speakerSelect.value = SPEAKER_ID; // 初期値の反映
 speakerSelect.onchange = (e) => {
-  SPEAKER_ID = parseInt(e.target.value, 10);
-  localStorage.setItem('vv_speaker_id', SPEAKER_ID);
+  if (ENGINE === 'coeiroink') {
+    const val = e.target.value;
+    if (val && val.includes(':')) {
+      const [uuid, style] = val.split(':');
+      COEIROINK_SPEAKER_UUID = uuid;
+      COEIROINK_STYLE_ID = parseInt(style, 10);
+      localStorage.setItem('vv_coeiroink_speaker_uuid', COEIROINK_SPEAKER_UUID);
+      localStorage.setItem('vv_coeiroink_style_id', COEIROINK_STYLE_ID);
+    }
+  } else {
+    SPEAKER_ID = parseInt(e.target.value, 10);
+    localStorage.setItem('vv_speaker_id', SPEAKER_ID);
+  }
+  stopAllSpeech();
 };
 
 function log(msg, type = 'info') {
@@ -169,9 +306,12 @@ function requestVoicevoxBase64(text) {
     try {
       chrome.runtime.sendMessage({
         action: 'synthesize',
+        engine: ENGINE,
         text: text,
         speakerId: SPEAKER_ID,
-        speedScale: SPEED_SCALE
+        speedScale: SPEED_SCALE,
+        coeiroinkSpeakerUuid: COEIROINK_SPEAKER_UUID,
+        coeiroinkStyleId: COEIROINK_STYLE_ID
       }, (response) => {
         if (chrome.runtime.lastError) {
           log('通信エラー: 拡張機能がリロードされました。ページをリロードしてください。', 'error');

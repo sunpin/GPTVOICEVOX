@@ -50,7 +50,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // 音声合成単体のリクエスト (content.js での先行合成プリフェッチ用)
   if (request.action === 'synthesize') {
-    synthesizeSpeech(request.text, request.speakerId, request.speedScale)
+    synthesizeSpeech(request)
       .then(base64Wav => {
         sendResponse({ success: true, base64Wav: base64Wav });
       })
@@ -59,10 +59,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     return true;
   }
+
+  // 話者リストの取得リクエスト
+  if (request.action === 'get_speakers') {
+    getSpeakers(request.engine)
+      .then(speakers => {
+        sendResponse({ success: true, speakers: speakers });
+      })
+      .catch(err => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
 });
-
-const VOICEVOX_URL = 'http://localhost:50021';
-
 // オフスクリーンでの再生指示
 async function handlePlayOffscreen(base64Wav, gapTime) {
   await setupOffscreen();
@@ -89,27 +98,100 @@ async function handleStopOffscreen() {
   }
 }
 
-async function synthesizeSpeech(text, speakerId, speedScale) {
-  // 1. audio_query の作成
-  const queryUrl = `${VOICEVOX_URL}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`;
-  const queryRes = await fetch(queryUrl, { method: 'POST' });
-  if (!queryRes.ok) throw new Error(`audio_query failed (${queryRes.status})`);
-  const queryJson = await queryRes.json();
+async function synthesizeSpeech(request) {
+  const { engine, text, speakerId, speedScale, coeiroinkSpeakerUuid, coeiroinkStyleId } = request;
 
-  queryJson.speedScale = speedScale;
+  if (engine === 'coeiroink') {
+    const urls = ['http://localhost:50032', 'http://127.0.0.1:50032'];
+    let synthRes;
+    let lastError = null;
 
-  // 2. 音声合成 (synthesis)
-  const synthUrl = `${VOICEVOX_URL}/synthesis?speaker=${speakerId}`;
-  const synthRes = await fetch(synthUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(queryJson)
-  });
-  if (!synthRes.ok) throw new Error(`synthesis failed (${synthRes.status})`);
-  const arrayBuffer = await synthRes.arrayBuffer();
+    for (const baseUrl of urls) {
+      try {
+        const synthUrl = `${baseUrl}/v1/synthesis`;
+        synthRes = await fetch(synthUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: text,
+            speakerUuid: coeiroinkSpeakerUuid,
+            styleId: coeiroinkStyleId,
+            speedScale: speedScale,
+            volumeScale: 1.0,
+            pitchScale: 0.0,
+            intonationScale: 1.0,
+            prePhonemeLength: 0.1,
+            postPhonemeLength: 0.2,
+            outputSamplingRate: 24000
+          })
+        });
+        if (synthRes.ok) {
+          lastError = null;
+          break;
+        } else {
+          let errorDetail = '';
+          try {
+            const errJson = await synthRes.json();
+            errorDetail = ` - ${JSON.stringify(errJson.detail || errJson)}`;
+          } catch (e) {
+            try {
+              errorDetail = ` - ${await synthRes.text()}`;
+            } catch (e2) {}
+          }
+          lastError = new Error(`COEIROINK synthesis failed (${synthRes.status})${errorDetail}`);
+        }
+      } catch (fetchErr) {
+        lastError = fetchErr;
+      }
+    }
 
-  // 3. ArrayBuffer を Base64 文字列に変換して送信
-  return bufferToBase64(arrayBuffer);
+    if (lastError) {
+      throw new Error(`COEIROINK connection failed: ${lastError.message}`);
+    }
+
+    const arrayBuffer = await synthRes.arrayBuffer();
+    return bufferToBase64(arrayBuffer);
+  } else {
+    // VOICEVOX の処理
+    const urls = ['http://localhost:50021', 'http://127.0.0.1:50021'];
+    let synthRes;
+    let lastError = null;
+
+    for (const baseUrl of urls) {
+      try {
+        const queryUrl = `${baseUrl}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`;
+        const queryRes = await fetch(queryUrl, { method: 'POST' });
+        if (!queryRes.ok) {
+          lastError = new Error(`audio_query failed (${queryRes.status})`);
+          continue;
+        }
+        const queryJson = await queryRes.json();
+        queryJson.speedScale = speedScale;
+
+        const synthUrl = `${baseUrl}/synthesis?speaker=${speakerId}`;
+        synthRes = await fetch(synthUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(queryJson)
+        });
+        if (synthRes.ok) {
+          lastError = null;
+          break;
+        } else {
+          lastError = new Error(`synthesis failed (${synthRes.status})`);
+        }
+      } catch (fetchErr) {
+        lastError = fetchErr;
+      }
+    }
+
+    if (lastError) {
+      throw new Error(`VOICEVOX connection failed: ${lastError.message}`);
+    }
+
+    const arrayBuffer = await synthRes.arrayBuffer();
+    return bufferToBase64(arrayBuffer);
+  }
 }
 
 function bufferToBase64(buffer) {
@@ -120,4 +202,36 @@ function bufferToBase64(buffer) {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+async function getSpeakers(engine) {
+  if (engine === 'coeiroink') {
+    const urls = ['http://localhost:50032', 'http://127.0.0.1:50032'];
+    let lastError = null;
+    for (const baseUrl of urls) {
+      try {
+        const res = await fetch(`${baseUrl}/v1/speakers`);
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw new Error(`COEIROINK get_speakers failed: ${lastError ? lastError.message : 'Unknown error'}`);
+  } else {
+    const urls = ['http://localhost:50021', 'http://127.0.0.1:50021'];
+    let lastError = null;
+    for (const baseUrl of urls) {
+      try {
+        const res = await fetch(`${baseUrl}/speakers`);
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw new Error(`VOICEVOX get_speakers failed: ${lastError ? lastError.message : 'Unknown error'}`);
+  }
 }
