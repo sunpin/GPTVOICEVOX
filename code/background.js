@@ -62,7 +62,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // 話者リストの取得リクエスト
   if (request.action === 'get_speakers') {
-    getSpeakers(request.engine)
+    getSpeakers(request)
       .then(speakers => {
         sendResponse({ success: true, speakers: speakers });
       })
@@ -99,10 +99,14 @@ async function handleStopOffscreen() {
 }
 
 async function synthesizeSpeech(request) {
-  const { engine, text, speakerId, speedScale, coeiroinkSpeakerUuid, coeiroinkStyleId } = request;
+  const { engine, text, speakerId, speedScale, coeiroinkSpeakerUuid, coeiroinkStyleId, voicevoxAddr, coeiroinkAddr } = request;
 
   if (engine === 'coeiroink') {
-    const urls = ['http://localhost:50032', 'http://127.0.0.1:50032'];
+    const userUrl = coeiroinkAddr ? coeiroinkAddr.replace(/\/$/, '') : 'http://localhost:50032';
+    const urls = [userUrl];
+    if (userUrl !== 'http://localhost:50032') urls.push('http://localhost:50032');
+    if (userUrl !== 'http://127.0.0.1:50032') urls.push('http://127.0.0.1:50032');
+    
     let synthRes;
     let lastError = null;
 
@@ -153,7 +157,11 @@ async function synthesizeSpeech(request) {
     return bufferToBase64(arrayBuffer);
   } else {
     // VOICEVOX の処理
-    const urls = ['http://localhost:50021', 'http://127.0.0.1:50021'];
+    const userUrl = voicevoxAddr ? voicevoxAddr.replace(/\/$/, '') : 'http://localhost:50021';
+    const urls = [userUrl];
+    if (userUrl !== 'http://localhost:50021') urls.push('http://localhost:50021');
+    if (userUrl !== 'http://127.0.0.1:50021') urls.push('http://127.0.0.1:50021');
+    
     let synthRes;
     let lastError = null;
 
@@ -204,9 +212,14 @@ function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
-async function getSpeakers(engine) {
+async function getSpeakers(request) {
+  const { engine, voicevoxAddr, coeiroinkAddr } = request;
   if (engine === 'coeiroink') {
-    const urls = ['http://localhost:50032', 'http://127.0.0.1:50032'];
+    const userUrl = coeiroinkAddr ? coeiroinkAddr.replace(/\/$/, '') : 'http://localhost:50032';
+    const urls = [userUrl];
+    if (userUrl !== 'http://localhost:50032') urls.push('http://localhost:50032');
+    if (userUrl !== 'http://127.0.0.1:50032') urls.push('http://127.0.0.1:50032');
+    
     let lastError = null;
     for (const baseUrl of urls) {
       try {
@@ -220,7 +233,11 @@ async function getSpeakers(engine) {
     }
     throw new Error(`COEIROINK get_speakers failed: ${lastError ? lastError.message : 'Unknown error'}`);
   } else {
-    const urls = ['http://localhost:50021', 'http://127.0.0.1:50021'];
+    const userUrl = voicevoxAddr ? voicevoxAddr.replace(/\/$/, '') : 'http://localhost:50021';
+    const urls = [userUrl];
+    if (userUrl !== 'http://localhost:50021') urls.push('http://localhost:50021');
+    if (userUrl !== 'http://127.0.0.1:50021') urls.push('http://127.0.0.1:50021');
+    
     let lastError = null;
     for (const baseUrl of urls) {
       try {

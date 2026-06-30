@@ -5,6 +5,8 @@ let COEIROINK_SPEAKER_UUID = localStorage.getItem('vv_coeiroink_speaker_uuid') |
 let COEIROINK_STYLE_ID = parseInt(localStorage.getItem('vv_coeiroink_style_id') || '0', 10);
 let SPEED_SCALE = parseFloat(localStorage.getItem('vv_speed_scale') || '1.1', 10);
 let GAP_TIME = parseInt(localStorage.getItem('vv_gap_time') || '10', 10);
+let VOICEVOX_ADDR = localStorage.getItem('vv_voicevox_addr') || 'http://localhost:50021';
+let COEIROINK_ADDR = localStorage.getItem('vv_coeiroink_addr') || 'http://localhost:50032';
 
 // UIの作成
 const configPanel = document.createElement('div');
@@ -49,6 +51,28 @@ engineDiv.innerHTML = `
   </select>
 `;
 body.appendChild(engineDiv);
+
+// VOICEVOXアドレス設定
+const vvAddrDiv = document.createElement('div');
+vvAddrDiv.style.marginBottom = '8px';
+vvAddrDiv.innerHTML = `
+  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+    <span>VOICEVOX アドレス:</span>
+  </div>
+  <input type="text" id="vv-vv-addr" value="${VOICEVOX_ADDR}" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; box-sizing:border-box; cursor:text;">
+`;
+body.appendChild(vvAddrDiv);
+
+// COEIROINKアドレス設定
+const coeiroinkAddrDiv = document.createElement('div');
+coeiroinkAddrDiv.style.marginBottom = '8px';
+coeiroinkAddrDiv.innerHTML = `
+  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+    <span>COEIROINK アドレス:</span>
+  </div>
+  <input type="text" id="vv-coeiroink-addr" value="${COEIROINK_ADDR}" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; box-sizing:border-box; cursor:text;">
+`;
+body.appendChild(coeiroinkAddrDiv);
 
 // 速度設定
 const speedDiv = document.createElement('div');
@@ -165,7 +189,12 @@ const updateSpeakerSelect = async () => {
         resolve({ success: false, error: 'Context invalidated' });
         return;
       }
-      chrome.runtime.sendMessage({ action: 'get_speakers', engine: ENGINE }, resolve);
+      chrome.runtime.sendMessage({
+        action: 'get_speakers',
+        engine: ENGINE,
+        voicevoxAddr: VOICEVOX_ADDR,
+        coeiroinkAddr: COEIROINK_ADDR
+      }, resolve);
     });
 
     if (!response || !response.success || !response.speakers) {
@@ -277,6 +306,22 @@ speakerSelect.onchange = (e) => {
   stopAllSpeech();
 };
 
+const vvAddrInput = document.getElementById('vv-vv-addr');
+vvAddrInput.onchange = (e) => {
+  VOICEVOX_ADDR = e.target.value.trim();
+  localStorage.setItem('vv_voicevox_addr', VOICEVOX_ADDR);
+  stopAllSpeech();
+  updateSpeakerSelect();
+};
+
+const coeiroinkAddrInput = document.getElementById('vv-coeiroink-addr');
+coeiroinkAddrInput.onchange = (e) => {
+  COEIROINK_ADDR = e.target.value.trim();
+  localStorage.setItem('vv_coeiroink_addr', COEIROINK_ADDR);
+  stopAllSpeech();
+  updateSpeakerSelect();
+};
+
 function log(msg, type = 'info') {
   const time = new Date().toLocaleTimeString();
   console.log(`[VOICEVOX][${time}][${type}] ${msg}`);
@@ -312,7 +357,9 @@ function requestVoicevoxBase64(text) {
         speakerId: SPEAKER_ID,
         speedScale: SPEED_SCALE,
         coeiroinkSpeakerUuid: COEIROINK_SPEAKER_UUID,
-        coeiroinkStyleId: COEIROINK_STYLE_ID
+        coeiroinkStyleId: COEIROINK_STYLE_ID,
+        voicevoxAddr: VOICEVOX_ADDR,
+        coeiroinkAddr: COEIROINK_ADDR
       }, (response) => {
         if (chrome.runtime.lastError) {
           log('通信エラー: 拡張機能がリロードされました。ページをリロードしてください。', 'error');
