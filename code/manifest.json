@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "ChatGPT VOICEVOX Talker",
+  "version": "1.0",
+  "description": "ChatGPTの返答完了を自動検知し、CORS/CSP制限を回避してVOICEVOXで自動読み上げします",
+  "permissions": [
+    "activeTab",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "http://localhost:50021/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
