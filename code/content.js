@@ -30,8 +30,8 @@ configPanel.style.cssText = `
 `;
 
 const header = document.createElement('div');
-header.style.cssText = 'font-weight: bold; border-bottom: 1px solid #444; padding-bottom: 4px; margin-bottom: 8px; cursor: pointer; display: flex; justify-content: space-between; color: #fff;';
-header.innerHTML = '<span>⚙️ VOICEVOX 設定</span><span id="vv-toggle-btn">[閉じる]</span>';
+header.style.cssText = 'font-weight: bold; border-bottom: 1px solid #444; padding-bottom: 4px; margin-bottom: 0px; cursor: pointer; display: flex; justify-content: space-between; color: #fff;';
+header.innerHTML = '<span>音声設定</span><span id="vv-toggle-btn">[X]</span>';
 configPanel.appendChild(header);
 
 const body = document.createElement('div');
@@ -40,9 +40,9 @@ body.style.display = 'block';
 
 // 音声エンジン設定
 const engineDiv = document.createElement('div');
-engineDiv.style.marginBottom = '8px';
+engineDiv.style.marginBottom = '0px';
 engineDiv.innerHTML = `
-  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+  <div style="display:flex; justify-content:space-between; margin-bottom:0px;">
     <span>音声エンジン:</span>
   </div>
   <select id="vv-engine-select" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; cursor:pointer;">
@@ -118,11 +118,11 @@ const toggleBtn = document.getElementById('vv-toggle-btn');
 header.onclick = () => {
   if (body.style.display === 'none') {
     body.style.display = 'block';
-    toggleBtn.innerText = '[閉じる]';
+    toggleBtn.innerText = '[X]';
     configPanel.style.width = '220px';
   } else {
     body.style.display = 'none';
-    toggleBtn.innerText = '[開く]';
+    toggleBtn.innerText = '[O]';
     configPanel.style.width = '100px';
   }
 };
@@ -327,7 +327,7 @@ function log(msg, type = 'info') {
   console.log(`[VOICEVOX][${time}][${type}] ${msg}`);
 }
 
-const CHECK_INTERVAL = 300; // 300ms間隔で超高速監視
+const CHECK_INTERVAL = 100; // 100ms間隔で超高速監視
 
 let lastMessageId = '';
 const speechQueue = [];
@@ -462,9 +462,21 @@ async function processQueue() {
 function cleanseText(element) {
   const clone = element.cloneNode(true);
   clone.querySelectorAll('pre, code, style, script, .sr-only').forEach(el => el.remove());
-  return clone.innerText.trim()
+  let text = clone.innerText.trim()
     .replace(/\s+/g, ' ')
     .replace(/https?:\/\/[^\s]+/g, '');
+
+  // ネットスラング・読み上げ用の表現調整
+  // - 笑いを表す「w」や「ｗ」の連続（英単語の一部やコード表現を除く）を「わら」に置換
+  text = text.replace(/(?<![a-zA-Z0-9])[wｗ]+(?![a-zA-Z0-9_\-\.])/gi, 'わら');
+  // - (笑) や （笑） を「わら」に置換
+  text = text.replace(/\(笑\)|（笑）/g, 'わら');
+  // - 888や８８８などの拍手を「ぱちぱちぱち」に置換（数値や単位・通貨などを除く）
+  text = text.replace(/(?<!\d)[8８]{3,}(?!\d|円|個|人|回|年|日|分|秒|月|万|億|頭|匹|着|足|冊|丁|枚|本|杯|g|kg|m|cm|mm|l|ml|%|％)/g, 'ぱちぱちぱち');
+  // - 「orz」を「がっくり」に置換
+  text = text.replace(/(?<![a-zA-Z])orz(?![a-zA-Z])/gi, 'がっくり');
+
+  return text;
 }
 
 let hasStartedGenerating = false;
@@ -510,7 +522,7 @@ let watchInterval = setInterval(() => {
     if (!text) return;
 
     // 全文から文末の区切り文字で分割して探す
-    const match = text.match(/.*?[。！？\n]/g);
+    const match = text.match(/.*?[。！？、，\n]/g);
     let bytesUsed = 0;
 
     if (match) {

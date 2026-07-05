@@ -125,7 +125,7 @@ async function synthesizeSpeech(request) {
             pitchScale: 0.0,
             intonationScale: 1.0,
             prePhonemeLength: 0.1,
-            postPhonemeLength: 0.2,
+            postPhonemeLength: 0.1,
             outputSamplingRate: 24000
           })
         });
