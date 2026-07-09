@@ -8,44 +8,187 @@ let GAP_TIME = parseInt(localStorage.getItem('vv_gap_time') || '10', 10);
 let VOICEVOX_ADDR = localStorage.getItem('vv_voicevox_addr') || 'http://localhost:50021';
 let COEIROINK_ADDR = localStorage.getItem('vv_coeiroink_addr') || 'http://localhost:50032';
 
-// UIの作成
+// ---- サイト別 DOM アダプタ (ChatGPT / Grok) ----
+const SITE = (() => {
+  const host = location.hostname;
+  if (host === 'grok.com' || host.endsWith('.grok.com')) return 'grok';
+  if (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) return 'chatgpt';
+  return 'unknown';
+})();
+
+const siteAdapters = {
+  chatgpt: {
+    name: 'ChatGPT',
+    getAssistantMessages() {
+      return document.querySelectorAll('div[data-message-author-role="assistant"]');
+    },
+    getTextBlocks(messageEl) {
+      return messageEl.querySelectorAll('p');
+    },
+    isGenerating() {
+      return !!document.querySelector(
+        'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label*="Stop generating"], button[aria-label*="生成を停止"]'
+      );
+    },
+    isComposerTarget(el) {
+      if (!el) return false;
+      if (el.id === 'prompt-textarea') return true;
+      return !!el.closest('#prompt-textarea, [contenteditable="true"]#prompt-textarea');
+    },
+    isSendButton(el) {
+      return !!el.closest(
+        'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label*="Send prompt"], button[data-testid="composer-send-button"]'
+      );
+    }
+  },
+  grok: {
+    name: 'Grok',
+    getAssistantMessages() {
+      // ユーザー吹き出しは items-end 側。アシスタントは items-start 側の message-bubble
+      const fromItemsStart = document.querySelectorAll('.items-start .message-bubble');
+      if (fromItemsStart.length > 0) return fromItemsStart;
+
+      // フォールバック: items-end 以外の message-bubble
+      return Array.from(document.querySelectorAll('.message-bubble')).filter(
+        (el) => !el.closest('.items-end')
+      );
+    },
+    getTextBlocks(messageEl) {
+      const md = messageEl.querySelector('.response-content-markdown') || messageEl;
+      const blocks = Array.from(md.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6'))
+        // li 内の p は親 li 側で拾うため二重読み上げを避ける
+        .filter((el) => !(el.tagName === 'P' && el.closest('li')));
+      if (blocks.length > 0) return blocks;
+      // 段落がまだ無いストリーミング序盤などは markdown 全体を1ブロックとして扱う
+      return md.innerText && md.innerText.trim() ? [md] : [];
+    },
+    isGenerating() {
+      // 公式デフォルト: aria-label="Stop model response"（i18n のフォールバック文言）
+      return !!document.querySelector(
+        'button[aria-label="Stop model response"],' +
+        'button[aria-label*="Stop model"],' +
+        'button[aria-label*="Stop response"],' +
+        'button[aria-label*="応答を停止"],' +
+        'button[aria-label*="生成を停止"]'
+      );
+    },
+    isComposerTarget(el) {
+      if (!el) return false;
+      // Grok は ProseMirror ベースの contenteditable（フィードバック欄などは除外）
+      if (el.closest && el.closest('.ProseMirror')) return true;
+      if (el.tagName === 'TEXTAREA' && el.closest('form')) return true;
+      return false;
+    },
+    isSendButton(el) {
+      return !!el.closest(
+        'button[aria-label="Submit"], button[aria-label*="Submit"], button[aria-label*="送信"], button[aria-label="Send message"], button[aria-label*="Send message"]'
+      );
+    }
+  }
+};
+
+const site = siteAdapters[SITE] || siteAdapters.chatgpt;
+
+// UIの作成（Shadow DOM + documentElement へマウント。Grok の SPA 差し替え／CSS 干渉を回避）
+// 右上にサイト側のアイコンがあるため、やや下にずらす
+const PANEL_TOP = '56px';
+const panelHost = document.createElement('div');
+panelHost.id = 'voicevox-talker-host';
+panelHost.setAttribute('data-vv-host', '1');
+panelHost.style.cssText = [
+  'all: initial',
+  'position: fixed',
+  `top: ${PANEL_TOP}`,
+  'right: 10px',
+  'z-index: 2147483647',
+  'pointer-events: auto',
+  'display: block',
+  'width: auto',
+  'height: auto',
+  'margin: 0',
+  'padding: 0',
+  'border: none',
+  'background: transparent',
+  'overflow: visible',
+  'visibility: visible',
+  'opacity: 1'
+].join(';');
+
+const panelShadow = panelHost.attachShadow({ mode: 'open' });
+const panelStyle = document.createElement('style');
+panelStyle.textContent = `
+  :host { all: initial; }
+  * { box-sizing: border-box; font-family: sans-serif; }
+  #voicevox-config-panel {
+    pointer-events: auto;
+    position: relative;
+    width: 220px;
+    background: rgba(20, 20, 20, 0.95);
+    color: #e0e0e0;
+    font-size: 11px;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    border: 1px solid #444;
+    text-align: left;
+    user-select: none;
+  }
+  #voicevox-config-panel select,
+  #voicevox-config-panel input[type="text"],
+  #voicevox-config-panel input[type="range"] {
+    width: 100%;
+    background: #333;
+    color: #fff;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 2px;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  #voicevox-config-panel input[type="text"] {
+    cursor: text;
+  }
+  #voicevox-config-panel .vv-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2px;
+  }
+  #voicevox-config-panel .vv-section { margin-bottom: 8px; }
+  #voicevox-config-panel .vv-val { color: #70ff70; font-weight: bold; }
+  #vv-config-header {
+    font-weight: bold;
+    border-bottom: 1px solid #444;
+    padding-bottom: 4px;
+    margin-bottom: 0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    color: #fff;
+  }
+`;
+panelShadow.appendChild(panelStyle);
+
 const configPanel = document.createElement('div');
 configPanel.id = 'voicevox-config-panel';
-configPanel.style.cssText = `
-  position: fixed;
-  top: 10px;
-  right: 10px;
-  width: 220px;
-  background: rgba(20, 20, 20, 0.95);
-  color: #e0e0e0;
-  font-family: sans-serif;
-  font-size: 11px;
-  padding: 10px;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
-  z-index: 999999;
-  border: 1px solid #444;
-  text-align: left;
-  user-select: none;
-`;
 
 const header = document.createElement('div');
-header.style.cssText = 'font-weight: bold; border-bottom: 1px solid #444; padding-bottom: 4px; margin-bottom: 0px; cursor: pointer; display: flex; justify-content: space-between; color: #fff;';
-header.innerHTML = '<span>音声設定</span><span id="vv-toggle-btn">[X]</span>';
+header.id = 'vv-config-header';
+// デフォルトは縮小表示（[O] 状態）
+header.innerHTML = '<span>音声設定</span><span id="vv-toggle-btn">[O]</span>';
 configPanel.appendChild(header);
+configPanel.style.width = '100px';
 
 const body = document.createElement('div');
 body.id = 'vv-config-body';
-body.style.display = 'block';
+body.style.display = 'none';
 
 // 音声エンジン設定
 const engineDiv = document.createElement('div');
-engineDiv.style.marginBottom = '0px';
+engineDiv.className = 'vv-section';
+engineDiv.style.marginBottom = '0';
 engineDiv.innerHTML = `
-  <div style="display:flex; justify-content:space-between; margin-bottom:0px;">
-    <span>音声エンジン:</span>
-  </div>
-  <select id="vv-engine-select" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; cursor:pointer;">
+  <div class="vv-row"><span>音声エンジン:</span></div>
+  <select id="vv-engine-select">
     <option value="voicevox">VOICEVOX (50021)</option>
     <option value="coeiroink">COEIROINK (50032)</option>
   </select>
@@ -54,67 +197,98 @@ body.appendChild(engineDiv);
 
 // VOICEVOXアドレス設定
 const vvAddrDiv = document.createElement('div');
-vvAddrDiv.style.marginBottom = '8px';
+vvAddrDiv.className = 'vv-section';
 vvAddrDiv.innerHTML = `
-  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-    <span>VOICEVOX アドレス:</span>
-  </div>
-  <input type="text" id="vv-vv-addr" value="${VOICEVOX_ADDR}" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; box-sizing:border-box; cursor:text;">
+  <div class="vv-row"><span>VOICEVOX アドレス:</span></div>
+  <input type="text" id="vv-vv-addr" value="${VOICEVOX_ADDR}">
 `;
 body.appendChild(vvAddrDiv);
 
 // COEIROINKアドレス設定
 const coeiroinkAddrDiv = document.createElement('div');
-coeiroinkAddrDiv.style.marginBottom = '8px';
+coeiroinkAddrDiv.className = 'vv-section';
 coeiroinkAddrDiv.innerHTML = `
-  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-    <span>COEIROINK アドレス:</span>
-  </div>
-  <input type="text" id="vv-coeiroink-addr" value="${COEIROINK_ADDR}" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; box-sizing:border-box; cursor:text;">
+  <div class="vv-row"><span>COEIROINK アドレス:</span></div>
+  <input type="text" id="vv-coeiroink-addr" value="${COEIROINK_ADDR}">
 `;
 body.appendChild(coeiroinkAddrDiv);
 
 // 速度設定
 const speedDiv = document.createElement('div');
-speedDiv.style.styleFloat = 'none';
-speedDiv.style.marginBottom = '8px';
+speedDiv.className = 'vv-section';
 speedDiv.innerHTML = `
-  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-    <span>再生速度:</span><div><span id="vv-speed-val" style="color:#70ff70; font-weight:bold;">${SPEED_SCALE}</span>倍</div>
+  <div class="vv-row">
+    <span>再生速度:</span>
+    <div><span id="vv-speed-val" class="vv-val">${SPEED_SCALE}</span>倍</div>
   </div>
-  <input type="range" id="vv-speed-range" min="0.5" max="2.0" step="0.1" value="${SPEED_SCALE}" style="width:100%; cursor:pointer; margin:0;">
+  <input type="range" id="vv-speed-range" min="0.5" max="2.0" step="0.1" value="${SPEED_SCALE}">
 `;
 body.appendChild(speedDiv);
 
 // 継ぎ目ウェイト設定
 const gapDiv = document.createElement('div');
-gapDiv.style.marginBottom = '8px';
+gapDiv.className = 'vv-section';
 gapDiv.innerHTML = `
-  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-    <span>段落間の待ち時間:</span><div><span id="vv-gap-val" style="color:#70ff70; font-weight:bold;">${GAP_TIME}</span>ms</div>
+  <div class="vv-row">
+    <span>段落間の待ち時間:</span>
+    <div><span id="vv-gap-val" class="vv-val">${GAP_TIME}</span>ms</div>
   </div>
-  <input type="range" id="vv-gap-range" min="0" max="1000" step="10" value="${GAP_TIME}" style="width:100%; cursor:pointer; margin:0;">
+  <input type="range" id="vv-gap-range" min="0" max="1000" step="10" value="${GAP_TIME}">
 `;
 body.appendChild(gapDiv);
 
 // 話者選択（ドロップダウン）設定
 const speakerDiv = document.createElement('div');
-speakerDiv.style.marginBottom = '8px';
+speakerDiv.className = 'vv-section';
 speakerDiv.innerHTML = `
-  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-    <span>話者選択:</span>
-  </div>
-  <select id="vv-speaker-select" style="width:100%; background:#333; color:#fff; border:1px solid #555; border-radius:4px; padding:2px; font-size:10px; cursor:pointer;">
+  <div class="vv-row"><span>話者選択:</span></div>
+  <select id="vv-speaker-select">
     <!-- 動的に切り替え -->
   </select>
 `;
 body.appendChild(speakerDiv);
 
 configPanel.appendChild(body);
-document.body.appendChild(configPanel);
+panelShadow.appendChild(configPanel);
+
+// Shadow 内要素の取得
+const $panel = (sel) => panelShadow.querySelector(sel);
+
+function mountConfigPanel() {
+  const parent = document.documentElement || document.body;
+  if (!parent) return false;
+  // 既に接続済みなら何もしない
+  if (panelHost.isConnected && parent.contains(panelHost)) return true;
+  // 旧ホストが残っていれば除去
+  document.querySelectorAll('#voicevox-talker-host, #voicevox-config-panel').forEach((el) => {
+    if (el !== panelHost) el.remove();
+  });
+  parent.appendChild(panelHost);
+  return true;
+}
+
+// 初回マウント（body 未準備時はリトライ）
+if (!mountConfigPanel()) {
+  const boot = setInterval(() => {
+    if (mountConfigPanel()) clearInterval(boot);
+  }, 50);
+  setTimeout(() => clearInterval(boot), 15000);
+}
+
+// SPA に消されたら付け直す
+const panelGuard = new MutationObserver(() => {
+  if (!panelHost.isConnected) {
+    mountConfigPanel();
+  }
+});
+panelGuard.observe(document.documentElement, { childList: true, subtree: false });
+// 念のため定期的にも確認
+setInterval(() => {
+  if (!panelHost.isConnected) mountConfigPanel();
+}, 2000);
 
 // イベントハンドラ
-const toggleBtn = document.getElementById('vv-toggle-btn');
+const toggleBtn = $panel('#vv-toggle-btn');
 header.onclick = () => {
   if (body.style.display === 'none') {
     body.style.display = 'block';
@@ -177,8 +351,8 @@ const coeiroinkOptions = `
   </optgroup>
 `;
 
-const engineSelect = document.getElementById('vv-engine-select');
-const speakerSelect = document.getElementById('vv-speaker-select');
+const engineSelect = $panel('#vv-engine-select');
+const speakerSelect = $panel('#vv-speaker-select');
 
 const updateSpeakerSelect = async () => {
   speakerSelect.innerHTML = '<option value="">読み込み中...</option>';
@@ -270,8 +444,8 @@ engineSelect.onchange = (e) => {
   updateSpeakerSelect();
 };
 
-const speedRange = document.getElementById('vv-speed-range');
-const speedVal = document.getElementById('vv-speed-val');
+const speedRange = $panel('#vv-speed-range');
+const speedVal = $panel('#vv-speed-val');
 speedRange.oninput = (e) => {
   SPEED_SCALE = parseFloat(e.target.value);
   speedVal.innerText = SPEED_SCALE;
@@ -281,8 +455,8 @@ speedRange.onchange = () => {
   stopAllSpeech();
 };
 
-const gapRange = document.getElementById('vv-gap-range');
-const gapVal = document.getElementById('vv-gap-val');
+const gapRange = $panel('#vv-gap-range');
+const gapVal = $panel('#vv-gap-val');
 gapRange.oninput = (e) => {
   GAP_TIME = parseInt(e.target.value, 10);
   gapVal.innerText = GAP_TIME;
@@ -306,7 +480,7 @@ speakerSelect.onchange = (e) => {
   stopAllSpeech();
 };
 
-const vvAddrInput = document.getElementById('vv-vv-addr');
+const vvAddrInput = $panel('#vv-vv-addr');
 vvAddrInput.onchange = (e) => {
   VOICEVOX_ADDR = e.target.value.trim();
   localStorage.setItem('vv_voicevox_addr', VOICEVOX_ADDR);
@@ -314,7 +488,7 @@ vvAddrInput.onchange = (e) => {
   updateSpeakerSelect();
 };
 
-const coeiroinkAddrInput = document.getElementById('vv-coeiroink-addr');
+const coeiroinkAddrInput = $panel('#vv-coeiroink-addr');
 coeiroinkAddrInput.onchange = (e) => {
   COEIROINK_ADDR = e.target.value.trim();
   localStorage.setItem('vv_coeiroink_addr', COEIROINK_ADDR);
@@ -334,9 +508,10 @@ const speechQueue = [];
 let isSpeaking = false;
 const sentSentences = new Set();
 
-log('拡張機能による監視を開始しました。');
+log(`拡張機能による監視を開始しました。 (site=${SITE} / ${site.name})`);
 log('【CORS/CSP完全回避・音声先行合成モード】');
-log('ChatGPTのAI返答を待っています...');
+log(`${site.name} のAI返答を待っています...`);
+log(`コントローラ mount: connected=${panelHost.isConnected} parent=${panelHost.parentElement && panelHost.parentElement.tagName}`);
 
 // VOICEVOXに非同期で音声合成をリクエストしPromiseを返す関数
 function requestVoicevoxBase64(text) {
@@ -483,14 +658,13 @@ let hasStartedGenerating = false;
 
 // 監視ループ
 let watchInterval = setInterval(() => {
-  const messages = document.querySelectorAll('div[data-message-author-role="assistant"]');
-  if (messages.length === 0) return;
+  const messages = site.getAssistantMessages();
+  if (!messages || messages.length === 0) return;
 
   const latestMessage = messages[messages.length - 1];
 
   // 生成中（ストリーミング中）かどうかの判定
-  const stopButton = document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop generating"]');
-  const isGenerating = !!stopButton;
+  const isGenerating = site.isGenerating();
 
   if (isGenerating) {
     if (!hasStartedGenerating) {
@@ -503,18 +677,18 @@ let watchInterval = setInterval(() => {
 
   // リロード直後などでAIの新たな発言（生成開始）を検知するまでは、過去ログなので一切読み上げない
   if (!hasStartedGenerating) {
-    latestMessage.querySelectorAll('p').forEach(p => p.setAttribute('data-vv-spoken', 'true'));
+    site.getTextBlocks(latestMessage).forEach((el) => el.setAttribute('data-vv-spoken', 'true'));
     return;
   }
 
-  // メッセージ内の p タグをすべて取得
-  const pElements = latestMessage.querySelectorAll('p');
+  // メッセージ内のテキストブロック（p / li / 見出し など）を取得
+  const pElements = site.getTextBlocks(latestMessage);
   
   // メッセージ全体で各テキストの出現回数を記録する Map (ダブりチェック用)
   const sentenceCounts = new Map();
   
   pElements.forEach((p, pIndex) => {
-    // 完全に完了済みのpタグはスキップ
+    // 完全に完了済みのブロックはスキップ
     if (p.getAttribute('data-vv-spoken') === 'true') return;
 
     const isLast = (pIndex === pElements.length - 1);
@@ -578,7 +752,7 @@ let watchInterval = setInterval(() => {
         const count = (sentenceCounts.get(trimmedRemaining) || 0) + 1;
         sentenceCounts.set(trimmedRemaining, count);
 
-        // 次のPタグへ移っているなら、このPタグの残存テキストを送信して完了とする
+        // 次のブロックへ移っているなら、このブロックの残存テキストを送信して完了とする
         const key = `${trimmedRemaining}:${count}`;
         if (!sentSentences.has(key)) {
           log(`段落移動による残余分を検知 (メモリ): "${trimmedRemaining.substring(0, 15)}..."`);
@@ -593,7 +767,7 @@ let watchInterval = setInterval(() => {
         p.setAttribute('data-vv-spoken', 'true'); // 完了マーク
       }
     } else {
-      // 残存テキストがない場合、かつ生成完了している、または最後のPタグでない場合は完了マークを付与
+      // 残存テキストがない場合、かつ生成完了している、または最後のブロックでない場合は完了マークを付与
       if ((isLast && !isGenerating) || !isLast) {
         p.setAttribute('data-vv-spoken', 'true');
       }
@@ -620,21 +794,38 @@ function stopAllSpeech() {
   }
 }
 
+// 既存のアシスタント返答を「読み上げ済み」にして過去ログの再読みを防ぐ
+function markAllExistingAsSpoken() {
+  const messages = site.getAssistantMessages();
+  if (!messages) return;
+  Array.from(messages).forEach((msg) => {
+    site.getTextBlocks(msg).forEach((el) => el.setAttribute('data-vv-spoken', 'true'));
+  });
+}
+
+// ユーザー送信を検知したときの共通処理
+function onUserSubmit() {
+  stopAllSpeech();
+  markAllExistingAsSpoken();
+  // 停止ボタン出現前でも新レスポンス待ちに入れる（Grok向け）
+  hasStartedGenerating = true;
+  sentSentences.clear();
+}
+
 // ユーザーの入力送信アクションの監視
 // 1. Enterキーによる送信 (Shift+Enterは改行のため除外)
 document.addEventListener('keydown', (e) => {
-  if (e.target && e.target.id === 'prompt-textarea') {
+  if (site.isComposerTarget(e.target)) {
     if (e.key === 'Enter' && !e.shiftKey) {
-      stopAllSpeech();
+      onUserSubmit();
     }
   }
 }, true); // キャプチャリングフェーズで優先的に検知
 
 // 2. 送信ボタンクリックによる送信
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-testid="send-button"], button[aria-label="Send prompt"]');
-  if (btn) {
-    stopAllSpeech();
+  if (site.isSendButton(e.target)) {
+    onUserSubmit();
   }
 }, true);
 

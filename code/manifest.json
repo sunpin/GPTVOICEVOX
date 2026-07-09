@@ -1,13 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT VOICEVOX Talker",
-  "version": "1.0",
-  "description": "ChatGPTの返答完了を自動検知し、CORS/CSP制限を回避してVOICEVOXで自動読み上げします",
+  "name": "AI VOICEVOX Talker",
+  "version": "1.4",
+  "description": "ChatGPT / Grok の返答を自動検知し、CORS/CSP制限を回避してVOICEVOX・COEIROINKで自動読み上げします",
   "permissions": [
     "activeTab",
     "offscreen"
   ],
   "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://grok.com/*",
+    "https://*.grok.com/*",
     "http://localhost:50021/*",
     "http://127.0.0.1:50021/*",
     "http://localhost:50032/*",
@@ -19,7 +22,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://grok.com/*",
+        "https://*.grok.com/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_end"
     }
