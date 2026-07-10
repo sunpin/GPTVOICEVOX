@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AI VOICEVOX Talker",
-  "version": "1.4",
-  "description": "ChatGPT / Grok の返答を自動検知し、CORS/CSP制限を回避してVOICEVOX・COEIROINKで自動読み上げします",
+  "version": "1.22",
+  "description": "ChatGPT / Grok / Gemini / Copilot / X Grok の返答を自動検知し、CORS/CSP制限を回避してVOICEVOX・COEIROINKで自動読み上げします",
   "permissions": [
     "activeTab",
     "offscreen"
@@ -11,6 +11,24 @@
     "https://chatgpt.com/*",
     "https://grok.com/*",
     "https://*.grok.com/*",
+    "https://gemini.google.com/*",
+    "https://copilot.microsoft.com/*",
+    "https://*.copilot.microsoft.com/*",
+    "https://copilot.cloud.microsoft/*",
+    "https://*.copilot.cloud.microsoft/*",
+    "https://m365.cloud.microsoft/*",
+    "https://*.m365.cloud.microsoft/*",
+    "https://www.bing.com/chat*",
+    "https://bing.com/chat*",
+    "https://www.bing.com/copilot*",
+    "https://edgeservices.bing.com/*",
+    "https://sydney.bing.com/*",
+    "https://www.office.com/chat*",
+    "https://office.com/chat*",
+    "https://www.microsoft365.com/chat*",
+    "https://microsoft365.com/chat*",
+    "https://x.com/*",
+    "https://twitter.com/*",
     "http://localhost:50021/*",
     "http://127.0.0.1:50021/*",
     "http://localhost:50032/*",
@@ -25,10 +43,36 @@
       "matches": [
         "https://chatgpt.com/*",
         "https://grok.com/*",
-        "https://*.grok.com/*"
+        "https://*.grok.com/*",
+        "https://gemini.google.com/*",
+        "https://x.com/*",
+        "https://twitter.com/*"
       ],
       "js": ["content.js"],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://copilot.microsoft.com/*",
+        "https://*.copilot.microsoft.com/*",
+        "https://copilot.cloud.microsoft/*",
+        "https://*.copilot.cloud.microsoft/*",
+        "https://m365.cloud.microsoft/*",
+        "https://*.m365.cloud.microsoft/*",
+        "https://www.bing.com/chat*",
+        "https://bing.com/chat*",
+        "https://www.bing.com/copilot*",
+        "https://edgeservices.bing.com/*",
+        "https://sydney.bing.com/*",
+        "https://www.office.com/chat*",
+        "https://office.com/chat*",
+        "https://www.microsoft365.com/chat*",
+        "https://microsoft365.com/chat*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end",
+      "all_frames": true
     }
   ]
 }
