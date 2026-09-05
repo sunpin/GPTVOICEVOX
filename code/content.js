@@ -1261,13 +1261,13 @@ function requestVoicevoxBase64(text) {
   })();
 }
 
-// 先読み（プリフェッチ）のトリガー関数 (最大1つの先読みのみ開始するバッファ1テキスト制限)
+// 先読み（プリフェッチ）のトリガー関数 (キューに溜まった文をバックグラウンドで即座に先行合成)
 function triggerPrefetch() {
   if (MUTED) return;
-  if (speechQueue.length > 0) {
-    const nextItem = speechQueue[0];
-    if (!nextItem.promise) {
-      nextItem.promise = requestVoicevoxBase64(nextItem.text);
+  for (let i = 0; i < Math.min(2, speechQueue.length); i++) {
+    const item = speechQueue[i];
+    if (item && !item.promise) {
+      item.promise = requestVoicevoxBase64(item.text);
     }
   }
 }
@@ -1290,8 +1290,10 @@ async function processQueue() {
 
   try {
     if (MUTED || myGen !== playGeneration) return;
-    // 常に現在の話者・速度で合成（先読みの古い音声を使わない）
-    item.promise = requestVoicevoxBase64(item.text);
+    // 先読み済みの場合はその Promise を再利用し、無ければここで即時合成開始
+    if (!item.promise) {
+      item.promise = requestVoicevoxBase64(item.text);
+    }
     triggerPrefetch();
 
     const base64Data = await item.promise;
