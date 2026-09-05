@@ -1386,10 +1386,22 @@ function stripSpeakerChrome(text) {
 }
 
 // クレンジング処理
+// ※ 改行は段落・行分割のために残す（全部スペース化すると改行分割が死ぬ）
 function cleansePlainText(raw) {
-  let text = stripSpeakerChrome(String(raw || '').trim()
-    .replace(/\s+/g, ' ')
-    .replace(/https?:\/\/[^\s]+/g, ''));
+  let text = String(raw || '');
+  // 改行正規化
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  // 水平空白だけ畳む（改行は維持）
+  text = text.replace(/[^\S\n]+/g, ' ');
+  // 行頭・行末スペース除去
+  text = text.replace(/ *\n */g, '\n');
+  // 空行の連打は段落区切り1つに
+  text = text.replace(/\n{3,}/g, '\n\n');
+  text = text.trim();
+  // URL 除去（行をまたがない）
+  text = text.replace(/https?:\/\/[^\s\n]+/g, '');
+
+  text = stripSpeakerChrome(text);
 
   // ネットスラング・読み上げ用の表現調整
   text = text.replace(/(?<![a-zA-Z0-9])[wｗ]+(?![a-zA-Z0-9_\-\.])/gi, 'わら');
@@ -1465,13 +1477,17 @@ function stripThinkingDom(root) {
 
 function stripThinkingPlainText(text) {
   let t = String(text || '');
-  // 先頭の思考ヘッダ行
+  // 先頭の思考ヘッダ行（改行は維持）
   t = t.replace(/^(Thinking|Thoughts?|Reasoning|思考中|考え中|推論中)([.．…]*|\s*).*$/gim, '');
   t = t.replace(/^Thought for \d+\s*(seconds?|s|秒)?.*$/gim, '');
   t = t.replace(/^思考に\s*\d+\s*秒.*$/gim, '');
   // よくある区切り
   t = t.replace(/\bThinking\.+\s*/gi, '');
-  return t.replace(/\s+/g, ' ').trim();
+  // 空行整理のみ（改行は落とさない）
+  t = t.replace(/[^\S\n]+/g, ' ');
+  t = t.replace(/ *\n */g, '\n');
+  t = t.replace(/\n{3,}/g, '\n\n');
+  return t.trim();
 }
 
 function cleanseText(element) {
@@ -1501,12 +1517,15 @@ function cleanseText(element) {
   return stripThinkingPlainText(cleansePlainText(clone.innerText || clone.textContent || ''));
 }
 
-// 句読点分割（文末のみ。読点「、」では切らない）
+// 句読点分割（ストリーミング中は読点「、」や長文の早期切断を有効化して超低遅延化）
 // 返す complete は「元テキスト上の連続スライス」なので offset が進んでも順序が壊れない
-function splitCompleteSentences(text) {
+function splitCompleteSentences(text, isStreaming = false) {
   if (!text) return { complete: [], rest: '' };
-  // 文末: 。！？ / 改行 / … / .!?（小数点除外）
-  const re = /[\s\S]*?(?:[。！？\n]|…+|(?<![0-9])[.!?](?=\s|$|["'”’)\]]))/g;
+  // 文末: 。！？ / … / .!?（小数点除外）
+  // ストリーミング中: 読点 (、，) やコロン (：；) でも早期切断して喋り出しを最速化
+  const re = isStreaming
+    ? /[\s\S]*?(?:(?:[。！？]|…+|(?<![0-9])[.!?])[」』）\)\]】〉》"'”’]*|[、，：；]\s*|\n\n|\n)/g
+    : /[\s\S]*?(?:(?:[。！？]|…+|(?<![0-9])[.!?])[」』）\)\]】〉》"'”’]*|\n\n|\n)/g;
   const complete = [];
   let used = 0;
   let m;
@@ -1517,14 +1536,42 @@ function splitCompleteSentences(text) {
       re.lastIndex++;
       continue;
     }
-    complete.push(s); // trim しない（offset 用）
+    // 改行・空行だけのスライスはスキップ（長さは used で進める）
+    if (!/[^\s]/.test(s)) {
+      used = m.index + s.length;
+      continue;
+    }
+    complete.push(s); // trim しない（offset 用）。末尾改行は含む
     used = m.index + s.length;
     if (m.index === re.lastIndex) re.lastIndex++;
   }
-  return { complete, rest: text.slice(used) };
+
+  let rest = text.slice(used);
+
+  // ストリーミング中かつ区切り記号がなく22文字以上溜まっている場合、早期切断
+  if (isStreaming && rest.length >= 22) {
+    let cutIdx = -1;
+    const matchClause = rest.match(/^.{12,25}(?:[、，：；\s|]|$)/);
+    if (matchClause) {
+      cutIdx = matchClause[0].length;
+    } else {
+      cutIdx = 20;
+    }
+    if (cutIdx > 0 && cutIdx <= rest.length) {
+      const chunk = rest.slice(0, cutIdx);
+      if (/[^\s]/.test(chunk)) {
+        complete.push(chunk);
+        used += cutIdx;
+        rest = text.slice(used);
+      }
+    }
+  }
+
+  return { complete, rest };
 }
 
 function normalizeSpokenKey(s) {
+  // 読み上げ用キー: 改行はスペース化（音声合成向け）
   return String(s || '').replace(/\s+/g, ' ').trim();
 }
 
@@ -1725,7 +1772,7 @@ function processMessageByOffset(messageEl, isGenerating) {
   }
 
   const unsent = trackText.slice(streamTrack.spokenLen);
-  const { complete } = splitCompleteSentences(unsent);
+  const { complete } = splitCompleteSentences(unsent, isGenerating);
   const sentenceCounts = new Map();
   let advanced = 0;
 
@@ -1945,7 +1992,7 @@ let watchInterval = setInterval(() => {
     const text = cleanseText(p);
     if (!text) return;
 
-    const { complete, rest } = splitCompleteSentences(text);
+    const { complete, rest } = splitCompleteSentences(text, isGenerating);
     let bytesUsed = 0;
     complete.forEach((sentence) => {
       enqueueSentence(sentence, sentenceCounts, '新規確定文を検知 (メモリ)');
