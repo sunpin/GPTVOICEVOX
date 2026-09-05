@@ -1519,15 +1519,15 @@ function cleanseText(element) {
   return stripThinkingPlainText(cleansePlainText(clone.innerText || clone.textContent || ''));
 }
 
-// 句読点分割（ストリーミング中は読点「、」や長文の早期切断を有効化して超低遅延化）
+// 句読点分割（文末・改行・段落。自然な抑揚を保つため読点「、」では切らない）
 // 返す complete は「元テキスト上の連続スライス」なので offset が進んでも順序が壊れない
-function splitCompleteSentences(text, isStreaming = false) {
+function splitCompleteSentences(text) {
   if (!text) return { complete: [], rest: '' };
   // 文末: 。！？ / … / .!?（小数点除外）
-  // ストリーミング中: 読点 (、，) やコロン (：；) でも早期切断して喋り出しを最速化
-  const re = isStreaming
-    ? /[\s\S]*?(?:(?:[。！？]|…+|(?<![0-9])[.!?])[」』）\)\]】〉》"'”’]*|[、，：；]\s*|\n\n|\n)/g
-    : /[\s\S]*?(?:(?:[。！？]|…+|(?<![0-9])[.!?])[」』）\)\]】〉》"'”’]*|\n\n|\n)/g;
+  // 改行: 単一 \n（行・リスト）と空行 \n\n（段落）
+  // 文末記号の直後の閉じカッコ・閉じ引用は同じ文に含める
+  const re =
+    /[\s\S]*?(?:(?:[。！？]|…+|(?<![0-9])[.!?])[」』）\)\]】〉》"'”’]*|\n\n|\n)/g;
   const complete = [];
   let used = 0;
   let m;
@@ -1547,29 +1547,7 @@ function splitCompleteSentences(text, isStreaming = false) {
     used = m.index + s.length;
     if (m.index === re.lastIndex) re.lastIndex++;
   }
-
-  let rest = text.slice(used);
-
-  // ストリーミング中かつ区切り記号がなく22文字以上溜まっている場合、早期切断
-  if (isStreaming && rest.length >= 22) {
-    let cutIdx = -1;
-    const matchClause = rest.match(/^.{12,25}(?:[、，：；\s|]|$)/);
-    if (matchClause) {
-      cutIdx = matchClause[0].length;
-    } else {
-      cutIdx = 20;
-    }
-    if (cutIdx > 0 && cutIdx <= rest.length) {
-      const chunk = rest.slice(0, cutIdx);
-      if (/[^\s]/.test(chunk)) {
-        complete.push(chunk);
-        used += cutIdx;
-        rest = text.slice(used);
-      }
-    }
-  }
-
-  return { complete, rest };
+  return { complete, rest: text.slice(used) };
 }
 
 function normalizeSpokenKey(s) {
@@ -1774,7 +1752,7 @@ function processMessageByOffset(messageEl, isGenerating) {
   }
 
   const unsent = trackText.slice(streamTrack.spokenLen);
-  const { complete } = splitCompleteSentences(unsent, isGenerating);
+  const { complete } = splitCompleteSentences(unsent);
   const sentenceCounts = new Map();
   let advanced = 0;
 
@@ -1994,7 +1972,7 @@ let watchInterval = setInterval(() => {
     const text = cleanseText(p);
     if (!text) return;
 
-    const { complete, rest } = splitCompleteSentences(text, isGenerating);
+    const { complete, rest } = splitCompleteSentences(text);
     let bytesUsed = 0;
     complete.forEach((sentence) => {
       enqueueSentence(sentence, sentenceCounts, '新規確定文を検知 (メモリ)');
